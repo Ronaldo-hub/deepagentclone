@@ -1,0 +1,410 @@
+# ============================================================================
+# docker-compose.yml - Local development setup
+# ============================================================================
+version: '3.8'
+
+services:
+  # Redis for task queue
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  # PostgreSQL (alternative to Supabase for local dev)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: agent_db
+      POSTGRES_USER: agent_user
+      POSTGRES_PASSWORD: agent_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Main agent API
+  agent-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Background worker for task queue
+  agent-worker:
+    build: .
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./:/app
+    command: python worker.py
+
+volumes:
+  redis_data:
+  postgres_data:
+
+---
+# ============================================================================
+# Dockerfile - Container configuration
+# ============================================================================
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Expose port
+EXPOSE 8000
+
+# Run the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+---
+# ============================================================================
+# requirements.txt - Python dependencies
+# ============================================================================
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# Async HTTP
+aiohttp==3.9.1
+httpx==0.25.2
+
+# Database
+supabase==2.3.0
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+
+# Redis & Task Queue
+redis==5.0.1
+celery==5.3.4
+
+# AI/LLM
+groq==0.4.1
+openai==1.6.1  # For OpenRouter compatibility
+
+# Email
+sendgrid==6.11.0
+
+# Vector embeddings
+sentence-transformers==2.2.2
+
+# Utilities
+python-dotenv==1.0.0
+pydantic-settings==2.1.0
+
+# Monitoring (optional but recommended)
+sentry-sdk[fastapi]==1.39.1
+
+---
+# ============================================================================
+# .env.example - Environment variables template
+# ============================================================================
+# Copy this file to .env and fill in your values
+
+# LLM API Keys (Choose one or more)
+GROQ_API_KEY=your_groq_api_key_here
+OPENROUTER_API_KEY=your_openrouter_key_here
+
+# Database - Supabase (Free tier: https://supabase.com)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your_supabase_anon_key
+
+# Email - SendGrid (Free: 100 emails/day)
+SENDGRID_API_KEY=your_sendgrid_api_key
+
+# GitHub Integration (Free)
+GITHUB_TOKEN=your_github_personal_access_token
+
+# Slack Integration (Free tier)
+SLACK_BOT_TOKEN=xoxb-your-slack-bot-token
+SLACK_SIGNING_SECRET=your_slack_signing_secret
+
+# Redis (Local or Upstash free tier)
+REDIS_URL=redis://localhost:6379
+
+# Optional: Monitoring
+SENTRY_DSN=your_sentry_dsn
+
+---
+# ============================================================================
+# worker.py - Background task processor
+# ============================================================================
+import asyncio
+import logging
+from main import TaskQueue
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+logger = logging.getLogger(__name__)
+
+async def main():
+    """Run the background worker"""
+    logger.info("Starting agent worker...")
+    queue = TaskQueue()
+    
+    try:
+        await queue.process_queue()
+    except KeyboardInterrupt:
+        logger.info("Worker stopped by user")
+    except Exception as e:
+        logger.error(f"Worker error: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+---
+# ============================================================================
+# railway.json - Railway deployment config (Free tier hosting)
+# ============================================================================
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "uvicorn main:app --host 0.0.0.0 --port $PORT",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
+
+---
+# ============================================================================
+# render.yaml - Render deployment config (Free tier hosting)
+# ============================================================================
+services:
+  - type: web
+    name: ai-agent-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+
+  - type: worker
+    name: ai-agent-worker
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python worker.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: GROQ_API_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+
+---
+# ============================================================================
+# fly.toml - Fly.io deployment config (Free tier hosting)
+# ============================================================================
+app = "ai-agent-system"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8000
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+---
+# ============================================================================
+# GitHub Actions - CI/CD Pipeline (Free on GitHub)
+# .github/workflows/deploy.yml
+# ============================================================================
+name: Deploy AI Agent
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio
+    
+    - name: Run tests
+      run: pytest tests/
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to Railway
+      run: |
+        npm i -g @railway/cli
+        railway up
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+---
+# ============================================================================
+# Database Schema - Supabase SQL
+# Run this in Supabase SQL editor
+# ============================================================================
+-- Enable pgvector extension for AI embeddings
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Agent conversation history
+CREATE TABLE agent_history (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id TEXT,
+    query TEXT NOT NULL,
+    response JSONB,
+    status TEXT DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Task queue tracking
+CREATE TABLE agent_tasks (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    task_type TEXT NOT NULL,
+    description TEXT,
+    status TEXT DEFAULT 'pending',
+    result JSONB,
+    created_at TIMESTAMP DEFAULT NOW(),
+    completed_at TIMESTAMP,
+    error TEXT
+);
+
+-- Vector embeddings for semantic search
+CREATE TABLE agent_knowledge (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    content TEXT NOT NULL,
+    embedding vector(384),  -- sentence-transformers dimension
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexes for performance
+CREATE INDEX idx_agent_history_user ON agent_history(user_id);
+CREATE INDEX idx_agent_history_created ON agent_history(created_at DESC);
+CREATE INDEX idx_agent_tasks_status ON agent_tasks(status);
+CREATE INDEX idx_agent_knowledge_embedding ON agent_knowledge 
+    USING ivfflat (embedding vector_cosine_ops);
+
+-- Row Level Security (RLS)
+ALTER TABLE agent_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_tasks ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Users can only see their own history
+CREATE POLICY user_history_policy ON agent_history
+    FOR ALL
+    USING (auth.uid()::text = user_id);
+
+---
+# ============================================================================
+# Monitoring & Logging Setup
+# monitoring.py
+# ============================================================================
+import logging
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.redis import RedisIntegration
+
+def setup_monitoring():
+    """Initialize monitoring and error tracking"""
+    
+    # Sentry for error tracking (free tier: 5k errors/month)
+    sentry_sdk.init(
+        dsn=Config.SENTRY_DSN,
+        integrations=[
+            FastApiIntegration(),
+            RedisIntegration(),
+        ],
+        traces_sample_rate=0.1,  # 10% of transactions
+        profiles_sample_rate=0.1,
+    )
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler('agent.log'),
+            logging.StreamHandler()
+        ]
+    )
+    
+    return logging.getLogger(__name__)
