@@ -1,0 +1,279 @@
+import React, { useState, useEffect } from 'react';
+import { Send, Loader2, CheckCircle, XCircle, Globe, Mail, Github, MessageSquare, Database, FileText, Code, Search } from 'lucide-react';
+
+const AIAgentDashboard = () => {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [agentStatus, setAgentStatus] = useState('idle');
+  const [currentTask, setCurrentTask] = useState('');
+  const [taskHistory, setTaskHistory] = useState([]);
+
+  // Simulate agent capabilities
+  const agentCapabilities = [
+    { icon: Globe, name: 'Web Search', status: 'active', description: 'Search and analyze web content' },
+    { icon: Mail, name: 'Email', status: 'configured', description: 'Send emails via SendGrid' },
+    { icon: Github, name: 'GitHub', status: 'configured', description: 'Manage repositories and issues' },
+    { icon: MessageSquare, name: 'Slack', status: 'configured', description: 'Post messages and notifications' },
+    { icon: Database, name: 'Database', status: 'active', description: 'Supabase PostgreSQL + pgvector' },
+    { icon: FileText, name: 'Documents', status: 'active', description: 'Generate reports and presentations' },
+    { icon: Code, name: 'Code Gen', status: 'active', description: 'Write and debug code' },
+    { icon: Search, name: 'Research', status: 'active', description: 'Deep research and analysis' },
+  ];
+
+  const handleSendMessage = async () => {
+    if (!input.trim() || isProcessing) return;
+
+    const userMessage = { role: 'user', content: input, timestamp: new Date() };
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsProcessing(true);
+    setAgentStatus('thinking');
+    setCurrentTask('Analyzing your request...');
+
+    // Simulate agent processing
+    await simulateAgentProcessing(input);
+  };
+
+  const simulateAgentProcessing = async (userInput) => {
+    const steps = [
+      'Breaking down task into steps...',
+      'Searching for relevant information...',
+      'Processing data...',
+      'Generating response...',
+    ];
+
+    for (let i = 0; i < steps.length; i++) {
+      setCurrentTask(steps[i]);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    // Generate agent response
+    const agentResponse = {
+      role: 'agent',
+      content: generateAgentResponse(userInput),
+      timestamp: new Date(),
+      actions: getAgentActions(userInput)
+    };
+
+    setMessages(prev => [...prev, agentResponse]);
+    setTaskHistory(prev => [...prev, {
+      task: userInput,
+      status: 'completed',
+      timestamp: new Date()
+    }]);
+    setIsProcessing(false);
+    setAgentStatus('idle');
+    setCurrentTask('');
+  };
+
+  const generateAgentResponse = (input) => {
+    const lowerInput = input.toLowerCase();
+    
+    if (lowerInput.includes('research') || lowerInput.includes('find')) {
+      return `I'll research that for you. I've searched multiple sources and compiled the information. Would you like me to generate a detailed report?`;
+    } else if (lowerInput.includes('email') || lowerInput.includes('send')) {
+      return `I can help send that email. I've drafted the message using your requirements. Should I proceed with sending via SendGrid?`;
+    } else if (lowerInput.includes('code') || lowerInput.includes('build')) {
+      return `I'll write that code for you. I've generated the implementation with proper error handling and documentation. Would you like me to create a GitHub repository?`;
+    } else if (lowerInput.includes('analyze') || lowerInput.includes('data')) {
+      return `I've analyzed the data and stored the results in our Supabase database. I can generate visualizations or export to CSV. What would you prefer?`;
+    } else {
+      return `I understand you want me to: "${input}". I can break this down into actionable steps and execute them. Should I proceed?`;
+    }
+  };
+
+  const getAgentActions = (input) => {
+    const lowerInput = input.toLowerCase();
+    const actions = [];
+    
+    if (lowerInput.includes('research')) actions.push('Web Search', 'Generate Report');
+    if (lowerInput.includes('email')) actions.push('Draft Email', 'Send via SendGrid');
+    if (lowerInput.includes('code')) actions.push('Generate Code', 'Create GitHub Repo');
+    if (lowerInput.includes('data')) actions.push('Query Database', 'Create Visualization');
+    
+    return actions.length > 0 ? actions : ['Process Request', 'Generate Response'];
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white p-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-6">
+          <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+            AI Agent System
+          </h1>
+          <p className="text-slate-400">Powered by free-tier infrastructure • Built to scale</p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main Chat Area */}
+          <div className="lg:col-span-2">
+            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700 h-[600px] flex flex-col">
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {messages.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-slate-500">
+                    <div className="text-center">
+                      <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg">Ask me to do anything!</p>
+                      <p className="text-sm mt-2">Try: "Research the latest AI trends and send me a report"</p>
+                    </div>
+                  </div>
+                ) : (
+                  messages.map((msg, idx) => (
+                    <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[80%] rounded-lg p-4 ${
+                        msg.role === 'user' 
+                          ? 'bg-purple-600 text-white' 
+                          : 'bg-slate-700 text-slate-100'
+                      }`}>
+                        <p className="mb-2">{msg.content}</p>
+                        {msg.actions && (
+                          <div className="mt-3 pt-3 border-t border-slate-600">
+                            <p className="text-xs text-slate-400 mb-2">Actions taken:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {msg.actions.map((action, i) => (
+                                <span key={i} className="text-xs bg-slate-600 px-2 py-1 rounded">
+                                  {action}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <p className="text-xs text-slate-400 mt-2">
+                          {msg.timestamp.toLocaleTimeString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+                
+                {isProcessing && (
+                  <div className="flex justify-start">
+                    <div className="bg-slate-700 rounded-lg p-4 max-w-[80%]">
+                      <div className="flex items-center gap-3">
+                        <Loader2 className="w-5 h-5 animate-spin text-purple-400" />
+                        <span className="text-slate-300">{currentTask}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Input Area */}
+              <div className="p-4 border-t border-slate-700">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                    placeholder="Ask your agent to do something..."
+                    disabled={isProcessing}
+                    className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50"
+                  />
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={isProcessing || !input.trim()}
+                    className="bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg px-6 py-3 transition-colors"
+                  >
+                    <Send className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-6">
+            {/* Agent Status */}
+            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700 p-6">
+              <h3 className="text-lg font-semibold mb-4">Agent Status</h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Status</span>
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    agentStatus === 'idle' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
+                  }`}>
+                    {agentStatus === 'idle' ? 'Ready' : 'Processing'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Tasks Completed</span>
+                  <span className="text-white font-semibold">{taskHistory.length}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Infrastructure</span>
+                  <span className="text-green-400 text-sm">Free Tier</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Capabilities */}
+            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700 p-6">
+              <h3 className="text-lg font-semibold mb-4">Capabilities</h3>
+              <div className="space-y-2">
+                {agentCapabilities.map((cap, idx) => {
+                  const Icon = cap.icon;
+                  return (
+                    <div key={idx} className="flex items-start gap-3 p-2 rounded-lg hover:bg-slate-700/50 transition-colors">
+                      <Icon className="w-5 h-5 text-purple-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium text-white">{cap.name}</span>
+                          {cap.status === 'active' ? (
+                            <CheckCircle className="w-4 h-4 text-green-400" />
+                          ) : (
+                            <span className="text-xs text-slate-500">Ready</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-400">{cap.description}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Recent Tasks */}
+            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700 p-6">
+              <h3 className="text-lg font-semibold mb-4">Recent Tasks</h3>
+              <div className="space-y-2">
+                {taskHistory.length === 0 ? (
+                  <p className="text-slate-500 text-sm">No tasks yet</p>
+                ) : (
+                  taskHistory.slice(-5).reverse().map((task, idx) => (
+                    <div key={idx} className="p-3 bg-slate-700/50 rounded-lg">
+                      <div className="flex items-start justify-between mb-1">
+                        <p className="text-sm text-white line-clamp-2">{task.task}</p>
+                        <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 ml-2" />
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        {task.timestamp.toLocaleTimeString()}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tech Stack Footer */}
+        <div className="mt-6 bg-slate-800/30 backdrop-blur-sm rounded-xl border border-slate-700 p-4">
+          <div className="flex flex-wrap gap-2 justify-center text-xs text-slate-400">
+            <span className="px-3 py-1 bg-slate-700/50 rounded-full">Groq API (Free)</span>
+            <span className="px-3 py-1 bg-slate-700/50 rounded-full">Supabase PostgreSQL</span>
+            <span className="px-3 py-1 bg-slate-700/50 rounded-full">Oracle Cloud VM</span>
+            <span className="px-3 py-1 bg-slate-700/50 rounded-full">SendGrid Free</span>
+            <span className="px-3 py-1 bg-slate-700/50 rounded-full">Redis + BullMQ</span>
+            <span className="px-3 py-1 bg-slate-700/50 rounded-full">GitHub Actions</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AIAgentDashboard;
