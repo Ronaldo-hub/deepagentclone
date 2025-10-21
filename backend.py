@@ -6,7 +6,7 @@ import asyncio
 import json
 from datetime import datetime
 from typing import Dict, List, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 # ============================================================================
@@ -55,7 +55,7 @@ class AgentTask:
     description: str
     status: str = "pending"
     result: Optional[Dict] = None
-    created_at: datetime = datetime.now()
+    created_at: datetime = field(default_factory=datetime.utcnow)
 
 class AIAgent:
     """Main AI Agent that orchestrates all capabilities"""
@@ -443,117 +443,113 @@ class TaskQueue:
                 )
 
 # ============================================================================
-# API SERVER - FastAPI endpoint
+# API SERVER - FastAPI endpoint (optional)
 # ============================================================================
 
-"""
-FastAPI server to expose the agent via REST API
+# The FastAPI endpoints are optional for running tests locally. If `fastapi`
+# is not installed in the environment we skip creating the app so the module
+# can be imported by tests that don't require the HTTP server.
+try:
+    from fastapi import FastAPI, HTTPException
+    from fastapi.middleware.cors import CORSMiddleware
+    from pydantic import BaseModel
 
-Run with: uvicorn main:app --reload
+    app = FastAPI(title="AI Agent System", version="1.0.0")
 
-Free hosting options:
-- Railway (free tier)
-- Render (free tier)
-- Fly.io (free tier)
-"""
+    # Enable CORS for frontend
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Configure for your domain in production
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+    class AgentRequest(BaseModel):
+        message: str
+        user_id: Optional[str] = None
+        context: Optional[Dict] = None
 
-app = FastAPI(title="AI Agent System", version="1.0.0")
+    class AgentResponse(BaseModel):
+        status: str
+        message: str
+        data: Optional[Dict] = None
+        task_id: Optional[str] = None
 
-# Enable CORS for frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure for your domain in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    @app.get("/")
+    async def root():
+        """Health check endpoint"""
+        return {
+            "status": "online",
+            "version": "1.0.0",
+            "capabilities": [
+                "web_search",
+                "code_generation",
+                "email",
+                "database",
+                "github",
+                "slack",
+                "research"
+            ]
+        }
 
-class AgentRequest(BaseModel):
-    message: str
-    user_id: Optional[str] = None
-    context: Optional[Dict] = None
+    @app.post("/agent/chat", response_model=AgentResponse)
+    async def chat_with_agent(request: AgentRequest):
+        """Main endpoint to interact with the agent"""
+        try:
+            agent = AIAgent()
+            result = await agent.process_request(request.message)
 
-class AgentResponse(BaseModel):
-    status: str
-    message: str
-    data: Optional[Dict] = None
-    task_id: Optional[str] = None
+            return AgentResponse(
+                status="success",
+                message="Request processed successfully",
+                data=result
+            )
 
-@app.get("/")
-async def root():
-    """Health check endpoint"""
-    return {
-        "status": "online",
-        "version": "1.0.0",
-        "capabilities": [
-            "web_search",
-            "code_generation",
-            "email",
-            "database",
-            "github",
-            "slack",
-            "research"
-        ]
-    }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/agent/chat", response_model=AgentResponse)
-async def chat_with_agent(request: AgentRequest):
-    """Main endpoint to interact with the agent"""
-    try:
-        agent = AIAgent()
-        result = await agent.process_request(request.message)
-        
-        return AgentResponse(
-            status="success",
-            message="Request processed successfully",
-            data=result
-        )
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    @app.post("/agent/task", response_model=AgentResponse)
+    async def create_task(request: AgentRequest):
+        """Create async task (for long-running operations)"""
+        try:
+            import uuid
+            task_id = str(uuid.uuid4())
 
-@app.post("/agent/task", response_model=AgentResponse)
-async def create_task(request: AgentRequest):
-    """Create async task (for long-running operations)"""
-    try:
-        import uuid
-        task_id = str(uuid.uuid4())
-        
-        queue = TaskQueue()
-        await queue.enqueue({
-            "id": task_id,
-            "request": request.message,
-            "user_id": request.user_id,
-            "context": request.context
-        })
-        
-        return AgentResponse(
-            status="queued",
-            message="Task queued for processing",
-            task_id=task_id
-        )
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            queue = TaskQueue()
+            await queue.enqueue({
+                "id": task_id,
+                "request": request.message,
+                "user_id": request.user_id,
+                "context": request.context
+            })
 
-@app.get("/agent/task/{task_id}")
-async def get_task_status(task_id: str):
-    """Check status of async task"""
-    try:
-        queue = TaskQueue()
-        result = queue.redis_client.get(f"result:{task_id}")
-        
-        if result:
-            return json.loads(result)
-        else:
-            return {"status": "processing", "task_id": task_id}
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            return AgentResponse(
+                status="queued",
+                message="Task queued for processing",
+                task_id=task_id
+            )
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/agent/task/{task_id}")
+    async def get_task_status(task_id: str):
+        """Check status of async task"""
+        try:
+            queue = TaskQueue()
+            result = queue.redis_client.get(f"result:{task_id}")
+
+            if result:
+                return json.loads(result)
+            else:
+                return {"status": "processing", "task_id": task_id}
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+except ImportError:
+    app = None
+    # FastAPI or Pydantic not installed; API endpoints are disabled in this env.
 
 # ============================================================================
 # EXAMPLE USAGE

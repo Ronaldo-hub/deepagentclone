@@ -1,3 +1,16 @@
+# AI Agent Dashboard
+
+Minimal scaffold for the AI Agent Dashboard project. See `backend/` for the
+Python server and `frontend/` for UI placeholders.
+
+Features
+- Web search
+- Code generation
+
+Installation
+```bash
+pip install -r requirements.txt
+```
 # deepagentclone
 # 🤖 AI Agent System - Complete Package
 
